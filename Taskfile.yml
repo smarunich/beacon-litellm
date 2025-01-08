@@ -1,0 +1,73 @@
+version: '3'
+
+vars:
+  AWS_ACCESS_KEY_ID:
+    sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_access_key_id/{print $3}' ~/.aws/credentials
+  AWS_SECRET_ACCESS_KEY:
+    sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_secret_access_key/{print $3}' ~/.aws/credentials
+  AWS_REGION:
+    sh: grep region ~/.aws/config | cut -d'=' -f2 | tr -d ' ' || echo "us-east-1"
+  NAMESPACE: litellm
+
+tasks:
+  init:
+    desc: Initialize AWS credentials and config in Kubernete
+    cmds:
+      # Create namespace if it doesn't exist
+      - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+      # Create AWS credentials secret
+      - |
+        kubectl create secret generic aws-bedrock-credentials \
+          --from-literal=AWS_ACCESS_KEY_ID={{.AWS_ACCESS_KEY_ID}} \
+          --from-literal=AWS_SECRET_ACCESS_KEY={{.AWS_SECRET_ACCESS_KEY}} \
+          --from-literal=AWS_REGION={{.AWS_REGION}} \
+          --namespace {{.NAMESPACE}} \
+          --dry-run=client -o yaml | kubectl apply -f -
+      # Create temporary config with updated region
+      - |
+        sed "s/region:.*/region: {{.AWS_REGION}}/" config.yaml > config_temp.yaml
+      # Create ConfigMap from updated config
+      - |
+        kubectl create configmap litellm-config \
+          --from-file=config.yaml=config_temp.yaml \
+          --namespace {{.NAMESPACE}} \
+          --dry-run=client -o yaml | kubectl apply -f -
+      # Clean up temporary config
+      - rm config_temp.yaml
+
+  deploy:
+    desc: Deploy LiteLLM proxy to Kubernetes
+    deps: [init]
+    cmds:
+      - kubectl apply -f k8s/deployment.yaml -n {{.NAMESPACE}}
+      - kubectl apply -f k8s/service.yaml -n {{.NAMESPACE}}
+
+  status:
+    desc: Check deployment status
+    cmds:
+      - echo "=== Pods Status ==="
+      - kubectl get pods -l app=litellm -o wide -n {{.NAMESPACE}}
+      - echo "\n=== Service Status ==="
+      - kubectl get service litellm -n {{.NAMESPACE}}
+      - echo "\n=== ConfigMaps and Secrets ==="
+      - kubectl get configmap litellm-config -n {{.NAMESPACE}}
+      - kubectl get secret aws-bedrock-credentials -n {{.NAMESPACE}}
+
+  logs:
+    desc: View logs from LiteLLM pods
+    cmds:
+      - kubectl logs -l app=litellm --tail={{.TAIL}} {{if eq .FOLLOW "true"}}-f{{end}} -n {{.NAMESPACE}}
+    vars:
+      TAIL: '100'
+      FOLLOW: 'true'
+
+  clean:
+    desc: Remove all LiteLLM resources
+    cmds:
+      - |
+        kubectl delete -f k8s/deployment.yaml \
+          -f k8s/service.yaml \
+          configmap/litellm-config \
+          secret/aws-bedrock-credentials \
+          --ignore-not-found=true \
+          -n {{.NAMESPACE}}
