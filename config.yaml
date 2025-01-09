@@ -1,26 +1,12 @@
-aws:
-  region: ${AWS_REGION}
-
-model_list:
-  - model_name: bedrock-claude
-    litellm_params:
-      model: bedrock/anthropic.claude-instant-v1
-
-proxy:
-  port: 8080
-
 general_settings:
   master_key: sk-1234      # enter your own master key, ensure it starts with 'sk-'
   alerting: ["slack"]      # Setup slack alerting - get alerts on LLM exceptions, Budget Alerts, Slow LLM Responses
   proxy_batch_write_at: 60 # Batch write spend updates every 60s
   database_connection_pool_limit: 10 # limit the number of database connections to = MAX Number of DB Connections/Number of instances of litellm proxy (Around 10-20 is good number)
-
   # OPTIONAL Best Practices
   disable_spend_logs: True # turn off writing each transaction to the db. We recommend doing this is you don't need to see Usage on the LiteLLM UI and are tracking metrics via Prometheus
   disable_error_logs: True # turn off writing LLM Exceptions to DB
   allow_requests_on_db_unavailable: True # Only USE when running LiteLLM on your VPC. Allow requests to still be processed even if the DB is unavailable. We recommend doing this if you're running LiteLLM on VPC that cannot be accessed from the public internet.
-
-
   pass_through_endpoints:
     - path: "/bedrock"  # Route to add to LiteLLM Proxy Server
       target: "https://bedrock-runtime.${AWS_REGION}.amazonaws.com"  # URL to forward requests to
@@ -30,6 +16,14 @@ general_settings:
         accept: application/json  # Specify accepted response type
       forward_headers: true  # Forward all headers from the incoming request to the target endpoint
 
+model_list:
+  - model_name: "bedrock-claude-v1"
+    litellm_params:
+      model: "bedrock/anthropic.claude-instant-v1"
+      aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
+      aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+      
 litellm_settings:
   request_timeout: 600    # raise Timeout error if call takes longer than 600 seconds. Default value is 6000seconds if not set
   set_verbose: true      # Switch off Debug Logging, ensure your logs do not have any debugging on

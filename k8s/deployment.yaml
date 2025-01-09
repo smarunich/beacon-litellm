@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: litellm
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: litellm
@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: litellm-container
-        image: ghcr.io/berriai/litellm:main-latest
+        image: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest
         imagePullPolicy: Always
         ports:
         - containerPort: 4000
@@ -38,10 +38,10 @@ spec:
           value: "sk-1234"
         args:
         - "--config"
-        - "/app/config.yaml"
+        - "/config/config.yaml"
         volumeMounts:
         - name: config-volume
-          mountPath: /app
+          mountPath: /config
           readOnly: true
         livenessProbe:
           httpGet:

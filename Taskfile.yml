@@ -9,6 +9,8 @@ vars:
     sh: grep region ~/.aws/config | cut -d'=' -f2 | tr -d ' ' || echo "us-east-1"
   NAMESPACE: litellm
 
+
+
 tasks:
   init:
     desc: Initialize AWS credentials and config in Kubernete
@@ -35,6 +37,12 @@ tasks:
       # Clean up temporary config
       - rm config_temp.yaml
 
+  build-and-push:
+    desc: Build and push Docker image for AMD64 to GCR
+    cmds:
+      - docker build --platform linux/amd64,linux/arm64 -t us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest .
+      - docker push us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest
+
   deploy:
     desc: Deploy LiteLLM proxy to Kubernetes
     deps: [init]
@@ -60,6 +68,11 @@ tasks:
     vars:
       TAIL: '100'
       FOLLOW: 'true'
+
+  port-forward:
+    desc: Port forward LiteLLM service to localhost
+    cmds:
+      - kubectl port-forward svc/litellm 4000:4000 -n {{.NAMESPACE}}
 
   clean:
     desc: Remove all LiteLLM resources
