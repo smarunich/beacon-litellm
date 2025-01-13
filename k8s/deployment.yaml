@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: litellm-container
-        image: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest
+        image: us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm-database:main-latest
         imagePullPolicy: Always
         ports:
         - containerPort: 4000
@@ -29,14 +29,10 @@ spec:
             secretKeyRef:
               name: aws-bedrock-credentials
               key: AWS_SECRET_ACCESS_KEY
-        - name: AWS_REGION
-          valueFrom:
-            secretKeyRef:
-              name: aws-bedrock-credentials
-              key: AWS_REGION
         - name: LITELLM_MASTER_KEY
           value: "sk-1234"
         args:
+        - "--detailed_debug"
         - "--config"
         - "/config/config.yaml"
         volumeMounts:

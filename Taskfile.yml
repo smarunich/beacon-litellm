@@ -5,82 +5,129 @@ vars:
     sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_access_key_id/{print $3}' ~/.aws/credentials
   AWS_SECRET_ACCESS_KEY:
     sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_secret_access_key/{print $3}' ~/.aws/credentials
-  AWS_REGION:
-    sh: grep region ~/.aws/config | cut -d'=' -f2 | tr -d ' ' || echo "us-east-1"
   NAMESPACE: litellm
-
-
+  DB_USER:
+    sh: echo ${DB_USER:-litellm}
+  DB_PASSWORD:
+    sh: echo ${DB_PASSWORD:-litellm123}
+  DB_NAME:
+    sh: echo ${DB_NAME:-litellm}
+  POSTGRES_HOST:
+    sh: echo "postgres.{{.NAMESPACE}}.svc.cluster.local"
+  POSTGRES_PORT:
+    sh: echo "5432"
 
 tasks:
   init:
-    desc: Initialize AWS credentials and config in Kubernete
+    desc: Initialize AWS credentials, config, and PostgreSQL secrets in Kubernetes
     cmds:
       # Create namespace if it doesn't exist
       - kubectl create namespace {{.NAMESPACE}} --dry-run=client -o yaml | kubectl apply -f -
+      
       # Create AWS credentials secret
       - |
         kubectl create secret generic aws-bedrock-credentials \
           --from-literal=AWS_ACCESS_KEY_ID={{.AWS_ACCESS_KEY_ID}} \
           --from-literal=AWS_SECRET_ACCESS_KEY={{.AWS_SECRET_ACCESS_KEY}} \
-          --from-literal=AWS_REGION={{.AWS_REGION}} \
           --namespace {{.NAMESPACE}} \
           --dry-run=client -o yaml | kubectl apply -f -
-      # Create temporary config with updated region
+      
+      # Create PostgreSQL secrets
       - |
-        sed "s/region:.*/region: {{.AWS_REGION}}/" config.yaml > config_temp.yaml
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: postgres-secrets
+          namespace: {{.NAMESPACE}}
+        type: Opaque
+        stringData:
+          POSTGRES_USER: {{.DB_USER}}
+          POSTGRES_PASSWORD: {{.DB_PASSWORD}}
+          POSTGRES_DB: {{.DB_NAME}}
+        EOF
+      
+      # Create temporary config with database URL
+      - |
+        sed -e "s|database_url:.*|database_url: \"postgresql://{{.DB_USER}}:{{.DB_PASSWORD}}@{{.POSTGRES_HOST}}:{{.POSTGRES_PORT}}/{{.DB_NAME}}\"|" \
+            config.yaml > config_temp.yaml
+      
       # Create ConfigMap from updated config
       - |
         kubectl create configmap litellm-config \
           --from-file=config.yaml=config_temp.yaml \
           --namespace {{.NAMESPACE}} \
           --dry-run=client -o yaml | kubectl apply -f -
+      
       # Clean up temporary config
       - rm config_temp.yaml
 
-  build-and-push:
-    desc: Build and push Docker image for AMD64 to GCR
+      # Output PostgreSQL connection details that will be used
+      - |
+        echo "PostgreSQL credentials initialized:"
+        echo "User: {{.DB_USER}}"
+        echo "Database: {{.DB_NAME}}"
+        echo "Connection URL: postgresql://{{.DB_USER}}:{{.DB_PASSWORD}}@{{.POSTGRES_HOST}}:{{.POSTGRES_PORT}}/{{.DB_NAME}}"
+
+  copy-and-push:
+    desc: Copy LiteLLM image from ghcr.io to GCR using skopeo
     cmds:
-      - docker build --platform linux/amd64,linux/arm64 -t us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest .
-      - docker push us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm:main-latest
+      - skopeo copy --all --preserve-digests docker://ghcr.io/berriai/litellm-database:main-latest docker://us-east1-docker.pkg.dev/dogfood-cx/registryrepository/litellm-database:main-latest
+
+  postgres-deploy:
+    desc: Deploy PostgreSQL database to Kubernetes
+    cmds:
+      - |
+        sed 's/litellm/{{.DB_USER}}/g; s/litellm123/{{.DB_PASSWORD}}/g' k8s/database-statefulset.yaml | kubectl apply -f - -n {{.NAMESPACE}}
+      - |
+        echo "Waiting for PostgreSQL StatefulSet to be ready..."
+        kubectl rollout status statefulset/postgres -n {{.NAMESPACE}} --timeout=60s
+      - |
+        echo "PostgreSQL is ready!"
 
   deploy:
     desc: Deploy LiteLLM proxy to Kubernetes
-    deps: [init]
+    deps: [init, postgres-deploy]
     cmds:
       - kubectl apply -f k8s/deployment.yaml -n {{.NAMESPACE}}
       - kubectl apply -f k8s/service.yaml -n {{.NAMESPACE}}
 
   status:
-    desc: Check deployment status
+    desc: Show status of all components
     cmds:
-      - echo "=== Pods Status ==="
-      - kubectl get pods -l app=litellm -o wide -n {{.NAMESPACE}}
+      - echo "\n=== Pods Status ==="
+      - kubectl get pods -n {{.NAMESPACE}}
+      - echo "\n=== StatefulSets Status ==="
+      - kubectl get statefulset -n {{.NAMESPACE}}
+      - echo "\n=== Persistent Volume Claims ==="
+      - kubectl get pvc -n {{.NAMESPACE}}
       - echo "\n=== Service Status ==="
       - kubectl get service litellm -n {{.NAMESPACE}}
       - echo "\n=== ConfigMaps and Secrets ==="
       - kubectl get configmap litellm-config -n {{.NAMESPACE}}
       - kubectl get secret aws-bedrock-credentials -n {{.NAMESPACE}}
+      - kubectl get secret postgres-secrets -n {{.NAMESPACE}}
 
   logs:
-    desc: View logs from LiteLLM pods
+    desc: View logs from the LiteLLM proxy
     cmds:
-      - kubectl logs -l app=litellm --tail={{.TAIL}} {{if eq .FOLLOW "true"}}-f{{end}} -n {{.NAMESPACE}}
-    vars:
-      TAIL: '100'
-      FOLLOW: 'true'
+      - kubectl logs -l app=litellm -n {{.NAMESPACE}} -f
 
   port-forward:
-    desc: Port forward LiteLLM service to localhost
+    desc: Forward local port to LiteLLM proxy
     cmds:
       - kubectl port-forward svc/litellm 4000:4000 -n {{.NAMESPACE}}
 
-  clean:
-    desc: Remove all LiteLLM resources
+  cleanup:
+    desc: Clean up all resources
     cmds:
+      # Clean up all components
+      - kubectl delete -f k8s/deployment.yaml -n {{.NAMESPACE}} --ignore-not-found=true
+      - kubectl delete -f k8s/service.yaml -n {{.NAMESPACE}} --ignore-not-found=true
+      - kubectl delete -f k8s/database-statefulset.yaml -n {{.NAMESPACE}} --ignore-not-found=true
       - |
-        kubectl delete -f k8s/deployment.yaml \
-          -f k8s/service.yaml \
-          configmap/litellm-config \
-          secret/aws-bedrock-credentials \
-          --ignore-not-found=true \
-          -n {{.NAMESPACE}}
+        kubectl delete secret \
+          aws-bedrock-credentials \
+          postgres-secrets \
+          -n {{.NAMESPACE}} --ignore-not-found=true
+      - kubectl delete configmap litellm-config -n {{.NAMESPACE}} --ignore-not-found=true

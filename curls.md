@@ -45,3 +45,17 @@ curl http://localhost:4000/bedrock/model/anthropic.claude-instant-v1/invoke \
     "temperature": 0.7,
     "top_p": 1
   }'
+
+
+curl --location "http://localhost:4000/chat/completions" \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer sk-1234' \
+  --data '{
+    "model": "bedrock-claude-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "what is Amazon S3"
+      }
+    ]
+  }'
