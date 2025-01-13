@@ -5,7 +5,7 @@ vars:
     sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_access_key_id/{print $3}' ~/.aws/credentials
   AWS_SECRET_ACCESS_KEY:
     sh: awk '/\[bedrock-ro-api\]/{f=1;next} /\[/{f=0} f&&/aws_secret_access_key/{print $3}' ~/.aws/credentials
-  NAMESPACE: litellm
+  NAMESPACE: beacon
   DB_USER:
     sh: echo ${DB_USER:-litellm}
   DB_PASSWORD:
@@ -95,7 +95,6 @@ tasks:
         if kubectl get deployment litellm -n {{.NAMESPACE}} >/dev/null 2>&1; then
           echo "Restarting deployment..."
           kubectl rollout restart deployment/litellm -n {{.NAMESPACE}}
-          kubectl rollout status deployment/litellm -n {{.NAMESPACE}}
         fi
 
   status:

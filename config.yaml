@@ -8,9 +8,9 @@ general_settings:
   proxy_batch_write_at: 60 # Batch write spend updates every 60s
   database_connection_pool_limit: 10 # limit the number of database connections to = MAX Number of DB Connections/Number of instances of litellm proxy (Around 10-20 is good number)
   # OPTIONAL Best Practices
-  disable_spend_logs: True # turn off writing each transaction to the db. We recommend doing this is you don't need to see Usage on the LiteLLM UI and are tracking metrics via Prometheus
-  disable_error_logs: True # turn off writing LLM Exceptions to DB
-  allow_requests_on_db_unavailable: True # Only USE when running LiteLLM on your VPC. Allow requests to still be processed even if the DB is unavailable. We recommend doing this if you're running LiteLLM on VPC that cannot be accessed from the public internet.
+  disable_spend_logs: false # turn off writing each transaction to the db. We recommend doing this is you don't need to see Usage on the LiteLLM UI and are tracking metrics via Prometheus
+  disable_error_logs: false # turn off writing LLM Exceptions to DB
+  allow_requests_on_db_unavailable: true # Only USE when running LiteLLM on your VPC. Allow requests to still be processed even if the DB is unavailable. We recommend doing this if you're running LiteLLM on VPC that cannot be accessed from the public internet.
   pass_through_endpoints:
     - path: "/bedrock/us-west-2"  # Route to add to LiteLLM Proxy Server
       target: "https://bedrock-runtime.us-west-2.amazonaws.com"  # URL to forward requests to
