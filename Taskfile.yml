@@ -91,6 +91,12 @@ tasks:
     cmds:
       - kubectl apply -f k8s/deployment.yaml -n {{.NAMESPACE}}
       - kubectl apply -f k8s/service.yaml -n {{.NAMESPACE}}
+      - |
+        if kubectl get deployment litellm -n {{.NAMESPACE}} >/dev/null 2>&1; then
+          echo "Restarting deployment..."
+          kubectl rollout restart deployment/litellm -n {{.NAMESPACE}}
+          kubectl rollout status deployment/litellm -n {{.NAMESPACE}}
+        fi
 
   status:
     desc: Show status of all components
